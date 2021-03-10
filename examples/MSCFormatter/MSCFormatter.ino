@@ -26,6 +26,8 @@ UsbFs msc2;
 SdFs sd;
 PFsFatFormatter FatFormatter;
 uint8_t  sectorBuffer[512];
+  uint8_t volName[32];
+  char volName1[] = "TESTCASE";
 
 
 bool getPartitionVolumeLabel(PFsVolume &partVol, uint8_t *pszVolName, uint16_t cb) {
@@ -67,6 +69,7 @@ bool getPartitionVolumeLabel(PFsVolume &partVol, uint8_t *pszVolName, uint16_t c
       }
       break;
   }
+
   return true;
 }
 
@@ -145,7 +148,6 @@ void procesMSDrive(uint8_t drive_number, msController &msDrive, UsbFs &msc)
   #if 1
   bool partition_valid[4];
   PFsVolume partVol[4];
-  uint8_t volName[32];
 
   for (uint8_t i = 0; i < 4; i++) {
     partition_valid[i] = partVol[i].begin(msc.usbDrive(), true, i+1);
@@ -197,6 +199,7 @@ void procesMSDrive(uint8_t drive_number, msController &msDrive, UsbFs &msc)
     Serial.printf(" Partition Total Size:%llu Used:%llu time us: %u\n", total_size, used_size, (uint32_t)em_sizes);
 
     partVol.ls();
+
   }
   #endif
 }  
@@ -223,9 +226,11 @@ void formatter(uint8_t drive_number, msController &msDrive, UsbFs &msc, uint8_t 
 
     partition_valid = partVol.begin(msc.usbDrive(), true, part+1);
     Serial.printf("Partition %u valid:%u\n", part, partition_valid);
-
-  if(partition_valid)
-  FatFormatter.format(msc.usbDrive(), part, partVol, sectorBuffer, &Serial);
+  
+  if(partition_valid){
+    FatFormatter.format(msc.usbDrive(), part, partVol, sectorBuffer, &Serial);
+    partVol.setVolumeLabel(volName1);
+  }
   else
   Serial.println("Cannot format an invalid partition");
   
@@ -282,7 +287,7 @@ void loop() {
       break;
     case('2'):
       //drive 1, , , partition 0-3
-      //formatter(1, msDrive1, msc1, 2);
+      formatter(1, msDrive1, msc1, 2);
       break;
     case('3'):
       //drive 1, , , partition 0-3

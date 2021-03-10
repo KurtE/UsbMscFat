@@ -72,6 +72,10 @@ bool PFsFatFormatter::format(BlockDeviceInterface *blockDev, uint8_t part, PFsVo
   m_relativeSectors = getLe32(pt->relativeSectors);
   m_totalSectors = m_sectorCount;
   m_partType = pt->type;
+  
+  if (partVol.getVolumeLabel(volName, sizeof(volName))) {
+	Serial.printf("Volume name:(%s)", volName);
+  }
 
   
   Serial.println("\nPFsFatFormatter::format................");
@@ -123,6 +127,7 @@ bool PFsFatFormatter::format(BlockDeviceInterface *blockDev, uint8_t part, PFsVo
   } else {
     writeMsg("Format Failed\r\n");
   }
+  
   return rtn;
 }
 
@@ -134,20 +139,22 @@ bool PFsFatFormatter::makeFat16() {
   uint32_t nc;
   uint32_t r;
   PbsFat_t* pbs = reinterpret_cast<PbsFat_t*>(m_secBuf);
-  /*
-  for (m_dataStart = 2*BU16; ; m_dataStart += BU16) {
-    nc = (m_sectorCount - m_dataStart)/m_sectorsPerCluster;
-    m_fatSize = (nc + 2 + (BYTES_PER_SECTOR/2) - 1)/(BYTES_PER_SECTOR/2);
-    r = BU16 + 1 + 2*m_fatSize + FAT16_ROOT_SECTOR_COUNT;
-    if (m_dataStart >= r) {
-      m_relativeSectors = m_dataStart - r + BU16;
-      break;
-    }
-  }
-*/
+  
+  //for (m_dataStart = 2*BU16; ; m_dataStart += BU16) {
+  //  nc = (m_sectorCount - m_dataStart)/m_sectorsPerCluster;
+  //  m_fatSize = (nc + 2 + (BYTES_PER_SECTOR/2) - 1)/(BYTES_PER_SECTOR/2);
+  //  r = BU16 + 1 + 2*m_fatSize + FAT16_ROOT_SECTOR_COUNT;
+  //  if (m_dataStart >= r) {
+  //    m_relativeSectors = m_dataStart - r + BU16;
+  //    break;
+  //  }
+  //}
+
 
   nc = (m_sectorCount - m_dataStart)/m_sectorsPerCluster;
   m_fatSize = (nc + 2 + (BYTES_PER_SECTOR/2) - 1)/(BYTES_PER_SECTOR/2);
+  
+  Serial.printf("m_relativeSectors: %d, m_fatSize: %d, m_dataStart: %d\n",m_relativeSectors, m_fatSize, m_dataStart) ;
 
   
   // check valid cluster count for FAT16 volume
@@ -159,11 +166,11 @@ bool PFsFatFormatter::makeFat16() {
   m_fatStart = m_relativeSectors + m_reservedSectorCount;
   //m_totalSectors = nc*m_sectorsPerCluster
   //                 + 2*m_fatSize + m_reservedSectorCount + 32;
-  //if (m_totalSectors < 65536) {
-  //  m_partType = 0X04;
-  //} else {
-  //  m_partType = 0X06;
-  //}
+  if (m_totalSectors < 65536) {
+    m_partType = 0X04;
+  } else {
+    m_partType = 0X06;
+  }
   
   Serial.printf("partType: %d, fatStart: %d, totalSectors: %d\n", m_partType, m_fatStart, m_totalSectors);
   // write MBR
@@ -177,6 +184,7 @@ bool PFsFatFormatter::makeFat16() {
   pbs->bpb.bpb16.physicalDriveNumber = 0X80;
   pbs->bpb.bpb16.extSignature = EXTENDED_BOOT_SIGNATURE;
   setLe32(pbs->bpb.bpb16.volumeSerialNumber, 1234567);
+  
   for (size_t i = 0; i < sizeof(pbs->bpb.bpb16.volumeLabel); i++) {
     pbs->bpb.bpb16.volumeLabel[i] = ' ';
   }
@@ -188,6 +196,7 @@ bool PFsFatFormatter::makeFat16() {
   if (!m_dev->writeSector(m_relativeSectors, m_secBuf)) {
     return false;
   }
+  
   return initFatDir(16, m_dataStart - m_fatStart);
   
 }
@@ -200,24 +209,24 @@ bool PFsFatFormatter::makeFat32() {
   PbsFat_t* pbs = reinterpret_cast<PbsFat_t*>(m_secBuf);
   FsInfo_t* fsi = reinterpret_cast<FsInfo_t*>(m_secBuf);
   
-/*
-  m_relativeSectors = BU32;
-  for (m_dataStart = 2*BU32; ; m_dataStart += BU32) {
-    nc = (m_sectorCount - m_dataStart)/m_sectorsPerCluster;
-    m_fatSize = (nc + 2 + (BYTES_PER_SECTOR/4) - 1)/(BYTES_PER_SECTOR/4);
-    r = m_relativeSectors + 9 + 2*m_fatSize;
-    if (m_dataStart >= r) {
-      break;
-    }
-  }
-*/
+
+  //m_relativeSectors = BU32;
+  //for (m_dataStart = 2*BU32; ; m_dataStart += BU32) {
+  //  nc = (m_sectorCount - m_dataStart)/m_sectorsPerCluster;
+  //  m_fatSize = (nc + 2 + (BYTES_PER_SECTOR/4) - 1)/(BYTES_PER_SECTOR/4);
+  //  r = m_relativeSectors + 9 + 2*m_fatSize;
+  //  if (m_dataStart >= r) {
+  //    break;
+  //  }
+  //}
+
     nc = (m_sectorCount - m_dataStart)/m_sectorsPerCluster;
     m_fatSize = (nc + 2 + (BYTES_PER_SECTOR/4) - 1)/(BYTES_PER_SECTOR/4);
 
   // error if too few clusters in FAT32 volume
   if (nc < 65525) {
     writeMsg("Bad cluster count\r\n");
-    //return false;
+    return false;
   }
   m_reservedSectorCount = m_dataStart - m_relativeSectors - 2*m_fatSize;
   m_fatStart = m_relativeSectors + m_reservedSectorCount;
@@ -238,6 +247,10 @@ bool PFsFatFormatter::makeFat32() {
   }
 
   initPbs();
+    Serial.printf("Volume name pbs:(%s)\n", pbs->bpb.bpb32.volumeLabel);
+
+  
+  
   setLe32(pbs->bpb.bpb32.sectorsPerFat32, m_fatSize);
   setLe32(pbs->bpb.bpb32.fat32RootCluster, 2);
   setLe16(pbs->bpb.bpb32.fat32FSInfoSector, 1);
@@ -246,8 +259,10 @@ bool PFsFatFormatter::makeFat32() {
   pbs->bpb.bpb32.extSignature = EXTENDED_BOOT_SIGNATURE;
   setLe32(pbs->bpb.bpb32.volumeSerialNumber, 1234567);
   for (size_t i = 0; i < sizeof(pbs->bpb.bpb32.volumeLabel); i++) {
-    pbs->bpb.bpb32.volumeLabel[i] = ' ';
+    pbs->bpb.bpb32.volumeLabel[i] = volName[i];
   }
+  Serial.printf("Volume name pbs:(%s)\n", pbs->bpb.bpb32.volumeLabel);
+  
   pbs->bpb.bpb32.volumeType[0] = 'F';
   pbs->bpb.bpb32.volumeType[1] = 'A';
   pbs->bpb.bpb32.volumeType[2] = 'T';
@@ -305,7 +320,6 @@ if (!m_dev->readSector(0, m_secBuf)) Serial.println("DIDN't GOT SECTOR BUFFER");
   setLe16(mbr->signature, MBR_SIGNATURE);
   return m_dev->writeSector(0, m_secBuf);
 
-  return true;
 }
 
 //------------------------------------------------------------------------------
@@ -336,6 +350,7 @@ bool PFsFatFormatter::initFatDir(uint8_t fatType, uint32_t sectorCount) {
 void PFsFatFormatter::initPbs() {
   PbsFat_t* pbs = reinterpret_cast<PbsFat_t*>(m_secBuf);
   memset(m_secBuf, 0, BYTES_PER_SECTOR);
+  
   pbs->jmpInstruction[0] = 0XEB;
   pbs->jmpInstruction[1] = 0X76;
   pbs->jmpInstruction[2] = 0X90;
