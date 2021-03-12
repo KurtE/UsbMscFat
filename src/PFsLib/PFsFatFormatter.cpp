@@ -110,23 +110,26 @@ bool PFsFatFormatter::format(BlockDeviceInterface *blockDev, uint8_t part, PFsVo
     // SDXC cards
     m_sectorsPerCluster = 128;
   }
-  
-  //rtn = m_sectorCount < 0X400000 ? makeFat16() :makeFat32();
-  if(partVol.fatType() == 16) {
-	writeMsg("format makeFAT16\r\n");  
-	rtn = makeFat16();
-  } else if(partVol.fatType() == 32) {
-	writeMsg("format makeFAT2\r\n");  
-	rtn = makeFat32();
-  }	else {
-	  rtn = false;
-  }
+    
+  rtn = m_sectorCount < 0X400000 ? makeFat16() :makeFat32();
+  //if(partVol.fatType() == 16) {
+//	writeMsg("format makeFAT16\r\n");  
+//	rtn = makeFat16();
+//  } else if(partVol.fatType() == 32) {
+//	writeMsg("format makeFAT2\r\n");  
+//	rtn = makeFat32();
+//  }	else {
+//	  rtn = false;
+//  }
  
   if (rtn) {
     writeMsg("Format Done\r\n");
   } else {
     writeMsg("Format Failed\r\n");
   }
+  
+  partVol.setVolumeLabel(volName);
+  
   
   return rtn;
 }
@@ -158,10 +161,10 @@ bool PFsFatFormatter::makeFat16() {
 
   
   // check valid cluster count for FAT16 volume
-  if (nc < 4085 || nc >= 65525) {
-    writeMsg("Bad cluster count\r\n");
-    return false;
-  }
+  //if (nc < 4085 || nc >= 65525) {
+  //  writeMsg("Bad cluster count\r\n");
+  //  return false;
+  //}
   m_reservedSectorCount = 1;
   m_fatStart = m_relativeSectors + m_reservedSectorCount;
   //m_totalSectors = nc*m_sectorsPerCluster
@@ -224,10 +227,10 @@ bool PFsFatFormatter::makeFat32() {
     m_fatSize = (nc + 2 + (BYTES_PER_SECTOR/4) - 1)/(BYTES_PER_SECTOR/4);
 
   // error if too few clusters in FAT32 volume
-  if (nc < 65525) {
-    writeMsg("Bad cluster count\r\n");
-    return false;
-  }
+  //if (nc < 65525) {
+  //  writeMsg("Bad cluster count\r\n");
+    //return false;
+  //}
   m_reservedSectorCount = m_dataStart - m_relativeSectors - 2*m_fatSize;
   m_fatStart = m_relativeSectors + m_reservedSectorCount;
   //m_totalSectors = nc*m_sectorsPerCluster + m_dataStart - m_relativeSectors;
@@ -246,11 +249,7 @@ bool PFsFatFormatter::makeFat32() {
     return false;
   }
 
-  initPbs();
-    Serial.printf("Volume name pbs:(%s)\n", pbs->bpb.bpb32.volumeLabel);
-
-  
-  
+  initPbs();  
   setLe32(pbs->bpb.bpb32.sectorsPerFat32, m_fatSize);
   setLe32(pbs->bpb.bpb32.fat32RootCluster, 2);
   setLe16(pbs->bpb.bpb32.fat32FSInfoSector, 1);
@@ -314,6 +313,14 @@ if (!m_dev->readSector(0, m_secBuf)) Serial.println("DIDN't GOT SECTOR BUFFER");
   pt->endCHS[2] = 0XFF;
 #endif  // USE_LBA_TO_CHS
 
+for(uint8_t i = 0; i < 3; i++) {
+      Serial.print("0x"); Serial.print(int(pt->beginCHS[i]), HEX); Serial.print( ',');
+}
+for(uint8_t i = 0; i < 3; i++) {
+      Serial.print("0x"); Serial.print(int(pt->endCHS[i]), HEX); Serial.print( ',');
+}
+Serial.println();
+
   pt->type = m_partType;
   setLe32(pt->relativeSectors, m_relativeSectors);
   setLe32(pt->totalSectors, m_totalSectors);
@@ -373,3 +380,53 @@ void PFsFatFormatter::initPbs() {
   setLe16(pbs->signature, PBR_SIGNATURE);
 }
 //------------------------------------------------------------------------------
+
+
+// bgnLba = relSector;
+// endLba = relSector + partSize - 1;
+void PFsFatFormatter::lbaToMbrChs(uint8_t* chs, uint32_t capacityMB, uint32_t lba) {
+  uint32_t c;
+  uint8_t h;
+  uint8_t s;
+
+  uint8_t numberOfHeads;
+  uint8_t sectorsPerTrack = capacityMB <= 256 ? 32 : 63;
+  
+  if (capacityMB <= 16) {
+    numberOfHeads = 2;
+  } else if (capacityMB <= 32) {
+    numberOfHeads = 4;
+  } else if (capacityMB <= 128) {
+    numberOfHeads = 8;
+  } else if (capacityMB <= 504) {
+    numberOfHeads = 16;
+  } else if (capacityMB <= 1008) {
+    numberOfHeads = 32;
+  } else if (capacityMB <= 2016) {
+    numberOfHeads = 64;
+  } else if (capacityMB <= 4032) {
+    numberOfHeads = 128;
+  } else {
+    numberOfHeads = 255;
+  }
+  c = lba / (numberOfHeads * sectorsPerTrack);
+  if (c <= 1023) {
+    h = (lba % (numberOfHeads * sectorsPerTrack)) / sectorsPerTrack;
+    s = (lba % sectorsPerTrack) + 1;
+  } else {
+    c = 1023;
+    h = 254;
+    s = 63;
+  }
+  chs[0] = h;
+  chs[1] = ((c >> 2) & 0XC0) | s;
+  chs[2] = c;
+  
+  Serial.printf("sectorsPerTrack: %d, numberOfHeads: %d\n", sectorsPerTrack, numberOfHeads);
+  Serial.println("New CHS:");
+    for(uint8_t i = 0; i < 3; i++) {
+      Serial.print("0x"); Serial.print(int(chs[i]), HEX); Serial.print( ',');
+  } Serial.println();
+  
+  
+}
